@@ -1,0 +1,27 @@
+[project]
+name = "collateralscore"
+version = "0.1.0"
+description = "Collateral score inference pipeline with nnUNet segmentation and radiomics."
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+  "joblib>=1.4,<2",
+  "nibabel>=5.2,<6",
+  "nnunetv2>=2.4,<3",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<3",
+  "pydicom>=2.4,<3",
+  "pyradiomics>=3.0,<4",
+  "pyyaml>=6.0,<7",
+  "scikit-image>=0.22,<1",
+  "scikit-learn>=1.4,<2",
+  "scipy>=1.13,<2",
+  "simpleitk>=2.3,<3",
+  "torch>=2.2,<3",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.extra-build-dependencies]
+pyradiomics = ["numpy>=1.26,<3"]

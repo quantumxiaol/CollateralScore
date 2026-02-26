@@ -8,6 +8,22 @@ Input = Niftis of CT Angiographies of patients with a LVO
 Step 1 -> CTA preprocessing and nn-Unet-based Vessel Segmentation.
 Step 2 -> Selected Radiomics Extraction and RFC prediction between sufficient (Tan Score 2 and 3) and insufficient (Tan Score 0 and 1)
 
+# Env
+```bash
+# Clone
+git clone https://github.com/YourUsername/BrainIAC_V2.git
+cd BrainIAC
+
+# (Optional) Use TUNA mirror in mainland China
+uv lock --default-index "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+uv sync --extra test --default-index "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+
+# Or without mirror
+# uv sync --extra test
+
+source .venv/bin/activate
+```
+
 # Inference
 As Pyradiomics words on CPU and nn-UNet on GPU we provide different yamls and requirment.txt for each step.
 
