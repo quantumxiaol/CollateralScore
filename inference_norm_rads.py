@@ -6,15 +6,72 @@ import numpy as np
 import joblib
 from sklearn.metrics import roc_auc_score
 from sklearn.utils import resample
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def load_dotenv(dotenv_path: Path) -> None:
+    """Load simple KEY=VALUE pairs from .env without extra dependencies."""
+    if not dotenv_path.exists():
+        return
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def get_path_from_env(env_name: str, default: Path | str) -> Path:
+    value = os.getenv(env_name)
+    path = Path(value).expanduser() if value else Path(default).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+def parse_model_paths() -> list[str]:
+    raw = os.getenv("RADS_MODEL_PATHS", "")
+    if raw.strip():
+        resolved: list[str] = []
+        for entry in raw.split(","):
+            value = entry.strip()
+            if not value:
+                continue
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = PROJECT_ROOT / path
+            resolved.append(str(path))
+        return resolved
+
+    return [
+        str(PROJECT_ROOT / "prediction1.joblib"),
+        str(PROJECT_ROOT / "prediction2.joblib"),
+        str(PROJECT_ROOT / "prediction3.joblib"),
+        str(PROJECT_ROOT / "prediction4.joblib"),
+    ]
+
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+RADIOMICS_YAML_PATH = get_path_from_env("RADIOMICS_YAML_PATH", PROJECT_ROOT / "all_shape.yaml")
+RADIOMICS_MIN_MAX_CSV = get_path_from_env("RADIOMICS_MIN_MAX_CSV", PROJECT_ROOT / "min_max_values.csv")
+DEFAULT_BASE_DIR = get_path_from_env("DATA_BASE_DIR", "/path/to/dir")
+RADS_MODEL_PATHS = parse_model_paths()
+
 # YAML file mappings for segmentations
 yaml_mappings = {
-    "right_binary_segmentation.nii.gz": "/path/to/all_shape.yaml",
-    "left_binary_segmentation.nii.gz": "/path/to/all_shape.yaml",
-    "rest_segm_reg.nii.gz": "/path/to/all_shape.yaml",
-    "MCA_segm_l.nii.gz": "/path/to/all_shape.yaml",
-    "MCA_segm_r.nii.gz": "/path/to/all_shape.yaml",
-    "ICA_segm_l.nii.gz": "/path/to/all_shape.yaml",
-    "ICA_segm_r.nii.gz": "/path/to/all_shape.yaml",
+    "right_binary_segmentation.nii.gz": str(RADIOMICS_YAML_PATH),
+    "left_binary_segmentation.nii.gz": str(RADIOMICS_YAML_PATH),
+    "rest_segm_reg.nii.gz": str(RADIOMICS_YAML_PATH),
+    "MCA_segm_l.nii.gz": str(RADIOMICS_YAML_PATH),
+    "MCA_segm_r.nii.gz": str(RADIOMICS_YAML_PATH),
+    "ICA_segm_l.nii.gz": str(RADIOMICS_YAML_PATH),
+    "ICA_segm_r.nii.gz": str(RADIOMICS_YAML_PATH),
 }
 
 # List of feature names to keep (currently empty — customize as needed)
@@ -216,18 +273,14 @@ def process_patient(patient_folder):
     existing_features.insert(0, 'patient_ID')
     existing_values.insert(0, patient_id)
 
-    min_max_csv = '/home/dimitrios/Exp1_only_shape/clear_data/min_max_values.csv'
+    min_max_csv = str(RADIOMICS_MIN_MAX_CSV)
+    norm_csv_path = os.path.join(patient_folder, "normalized_selected_radiomics.csv")
     # Step 6: Save to CSV and normalize features
     save_final_csv(existing_features, existing_values, csv_path)
-    normalize_radiomics(csv_path, min_max_csv, os.path.join(patient_folder, "normalized_selected_radiomics.csv"))
-
-        # Step 6: Save to CSV and normalize features
-    save_final_csv(existing_features, existing_values, csv_path)
-    normalize_radiomics(csv_path, min_max_csv, os.path.join(patient_folder, "normalized_selected_radiomics.csv"))
+    normalize_radiomics(csv_path, min_max_csv, norm_csv_path)
 
     # Step 7: Keep only required features (in specified order) + patient_ID
     if required_features:
-        norm_csv_path = os.path.join(patient_folder, "normalized_selected_radiomics.csv")
         norm_df = pd.read_csv(norm_csv_path)
 
         final_columns = ['patient_ID'] + [f for f in required_features if f in norm_df.columns]
@@ -255,16 +308,13 @@ def predict_patient_outcome(patient_csv_path):
     patient_id = test_df['patient_ID'].iloc[0]
 
     # Step 2: Load models
-    model_paths = [
-        "/path/to/models1",
-        "/path/to/models2",
-        "/path/to/models3",
-        "/path/to/models4"
-    ]
+    model_paths = RADS_MODEL_PATHS
 
     print("🤖 Running model ensemble predictions...")
     predictions = []
     for path in model_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model file not found: {path}")
         model = joblib.load(path)
         preds = model.predict_proba(X_test)[:, 1]
         predictions.append(preds)
@@ -290,9 +340,14 @@ def process_all_patients(base_dir):
         if os.path.isdir(patient_folder):  # Ensure it's a folder, not a file
             process_patient(patient_folder)
 
+def main():
+    base_dir = str(DEFAULT_BASE_DIR)
+    if not os.path.isdir(base_dir):
+        raise FileNotFoundError(
+            f"DATA_BASE_DIR not found: {base_dir}. Set DATA_BASE_DIR in .env or your shell."
+        )
+    process_all_patients(base_dir)
 
 
-# Run the script
-base_dir = "/path/to/dir"
-process_all_patients(base_dir)
-
+if __name__ == "__main__":
+    main()

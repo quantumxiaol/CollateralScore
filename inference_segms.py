@@ -8,22 +8,74 @@ import shutil
 import SimpleITK as sitk
 import pandas as pd
 import glob
+from pathlib import Path
 
 
-# Set FreeSurfer environment variables
-freesurfer_home = '/path/to/freesurfer'
-os.environ['FREESURFER_HOME'] = freesurfer_home
-os.environ['PATH'] += os.pathsep + os.path.join(freesurfer_home, 'bin')
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def load_dotenv(dotenv_path: Path) -> None:
+    """Load simple KEY=VALUE pairs from .env without extra dependencies."""
+    if not dotenv_path.exists():
+        return
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def get_path_from_env(env_name: str, default: Path | str) -> Path:
+    value = os.getenv(env_name)
+    path = Path(value).expanduser() if value else Path(default).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+def resolve_torch_device() -> torch.device:
+    configured = os.getenv("TORCH_DEVICE")
+    if configured:
+        return torch.device(configured)
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    return torch.device("cpu")
+
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+MODELS_ROOT = get_path_from_env("COLLATERALSCORE_MODELS_DIR", "modelsweights")
+FREESURFER_HOME = str(get_path_from_env("FREESURFER_HOME", "/path/to/freesurfer"))
+NNUNET_BINARY_MODEL_DIR = get_path_from_env("NNUNET_BINARY_MODEL_DIR", MODELS_ROOT / "nnunet" / "binary")
+NNUNET_MULTI_MODEL_DIR = get_path_from_env("NNUNET_MULTI_MODEL_DIR", MODELS_ROOT / "nnunet" / "multi")
+DEFAULT_BASE_DIR = get_path_from_env("DATA_BASE_DIR", "/path/to/dir")
+DEFAULT_TEMPLATE_PATH = get_path_from_env("TEMPLATE_PATH", "/path/to/template")
+TORCH_DEVICE = resolve_torch_device()
+
+if FREESURFER_HOME != "/path/to/freesurfer":
+    os.environ.setdefault("FREESURFER_HOME", FREESURFER_HOME)
+    freesurfer_bin = os.path.join(FREESURFER_HOME, "bin")
+    if freesurfer_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + freesurfer_bin
 
 def create_brain_mask(input_path, output_dir):
     """Creates a brain mask using SynthStrip from FreeSurfer."""
     try:
+        if FREESURFER_HOME == "/path/to/freesurfer":
+            raise ValueError("FREESURFER_HOME is not configured. Set it in .env or your shell.")
+
         print(f"Creating brain mask for {input_path}")
         output_path = os.path.join(output_dir, os.path.basename(input_path).replace(".nii.gz", "_BET.nii.gz"))
         mask_output_path = os.path.join(output_dir, os.path.basename(input_path).replace(".nii.gz", "_BET_mask.nii.gz"))
 
         if not os.path.exists(mask_output_path):
-            command = f"bash -c 'source {os.path.join(freesurfer_home, 'SetUpFreeSurfer.sh')} && mri_synthstrip -i {input_path} -o {output_path} -m {mask_output_path}'"
+            command = (
+                f"bash -c 'source {os.path.join(FREESURFER_HOME, 'SetUpFreeSurfer.sh')} "
+                f"&& mri_synthstrip -i {input_path} -o {output_path} -m {mask_output_path}'"
+            )
             print(f"Running command: {command}")
             result = subprocess.run(command, shell=True, capture_output=True, text=True)
             print(result.stdout, result.stderr)
@@ -125,14 +177,14 @@ def run_inference_binary(input_cta):
             use_gaussian=True,
             use_mirroring=True,
             perform_everything_on_device=True,
-            device=torch.device('cuda', 1),
+            device=TORCH_DEVICE,
             verbose=False,
             verbose_preprocessing=False,
             allow_tqdm=True
         )
 
         # Load the trained model
-        model_path = "/path/to/binary"
+        model_path = str(NNUNET_BINARY_MODEL_DIR)
         
         predictor.initialize_from_trained_model_folder(
             model_path,
@@ -237,14 +289,14 @@ def run_inference_mutli(input_cta):
             use_gaussian=True,
             use_mirroring=False,
             perform_everything_on_device=True,
-            device=torch.device('cuda', 1),
+            device=TORCH_DEVICE,
             verbose=False,
             verbose_preprocessing=False,
             allow_tqdm=True
         )
 
         # Load the trained model
-        model_path =  "/path/to/multi"
+        model_path = str(NNUNET_MULTI_MODEL_DIR)
         
         predictor.initialize_from_trained_model_folder(
             model_path,
@@ -352,9 +404,17 @@ def process_cta(cta_path, output_dir, template_path):
     return registered_cta
 
 def main():
-    base_dir = "/path/to/dir"  # Update with the main directory
-    template_path = "/path/to/template"  # Template file path
-    cost_function_registration = "mutualinfo"  # Set the registration method
+    base_dir = str(DEFAULT_BASE_DIR)
+    template_path = str(DEFAULT_TEMPLATE_PATH)
+
+    if not os.path.isdir(base_dir):
+        raise FileNotFoundError(
+            f"DATA_BASE_DIR not found: {base_dir}. Set DATA_BASE_DIR in .env or your shell."
+        )
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(
+            f"TEMPLATE_PATH not found: {template_path}. Set TEMPLATE_PATH in .env or your shell."
+        )
 
     # Loop through all folders in base_dir
     for folder in sorted(os.listdir(base_dir)):
@@ -373,4 +433,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -18,6 +18,7 @@ dependencies = [
   "scipy>=1.13,<2",
   "simpleitk>=2.3,<3",
   "torch>=2.2,<3",
+  "python-dotenv",
 ]
 
 [tool.uv]
